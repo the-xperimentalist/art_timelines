@@ -14,7 +14,6 @@ contract NFTProjectMarketplace is ReentrancyGuard {
   uint public feePercent;
   bool public completed = false;
   uint256 public sellTimeDelay;
-  uint256 public projectCompleteTime;
 
   struct Bid {
     uint256 bidTime;
@@ -67,6 +66,7 @@ contract NFTProjectMarketplace is ReentrancyGuard {
     address payable creator;
     uint lastBid;
     bool completed;
+    uint256 projectCompleteTime;
   }
   uint256 public projectCount;
   mapping(uint => Project) public projects;
@@ -97,7 +97,7 @@ contract NFTProjectMarketplace is ReentrancyGuard {
     sellTimeDelay = _sellTimeDelay;
   }
 
-  function getCurrentTimeInEpoch() internal returns(uint256) {
+  function getCurrentTimeInEpoch() internal view returns(uint256) {
     return block.timestamp;
   }
 
@@ -116,18 +116,34 @@ contract NFTProjectMarketplace is ReentrancyGuard {
 
     _nft.transferFrom(msg.sender, address(this), _tokenId);
 
-    mapping(uint => NFTItem) memory newNft; // Validate the memory vs storage use case here
-    newNft[1] = NFTItem(1, _nft, _tokenId, currentTime);
-    mapping(uint => Bid) memory newBid; // Validate the memory vs storage use case here
-    newBid[1] = Bid(currentTime, _basePrice, msg.sender, 1);
+    // mapping(uint => NFTItem) memory newNft; // Validate the memory vs storage use case here
+    // newNft[1] = NFTItem(1, _nft, _tokenId, currentTime);
+    // mapping(uint => Bid) memory newBid; // Validate the memory vs storage use case here
+    // newBid[1] = Bid(currentTime, _basePrice, msg.sender, 1);
 
     projectCount ++;
 
-    projects[projectCount] = Project( projectCount, _projectName, _projectDescription, newNft, 1, newBid, 1, false, msg.sender, _basePrice, false);
+    // Artifically add values to struct to test
+    Project storage project = projects[projectCount];
+    project.projectId = projectCount;
+    project.name = _projectName;
+    project.description = _projectDescription;
+    project.noOfNfts ++;
+    project.noOfBids ++;
 
-    emit NFTAdded(1, address(_nft), _tokenId, currentTime, msg.sender);
-    emit NewBid(currentTime, _basePrice, msg.sender, 1, 1);
-    emit ProjectAdd(1, _projectName, _projectDescription, msg.sender, _basePrice);
+    NFTItem memory nftItem = NFTItem(project.noOfNfts, _nft, _tokenId, currentTime);
+    Bid memory bid = Bid(currentTime, _basePrice, msg.sender, project.noOfBids);
+
+    project.nfts[project.noOfNfts] = nftItem;
+    project.bids[project.noOfBids] = bid;
+    project.sold = false;
+    project.creator = payable(msg.sender);
+    project.lastBid = _basePrice;
+    project.completed = false;
+
+    emit NFTAdded(project.noOfNfts, address(_nft), _tokenId, currentTime, msg.sender, projectCount);
+    emit NewBid(currentTime, _basePrice, msg.sender, project.noOfBids, projectCount);
+    emit ProjectAdd(projectCount, _projectName, _projectDescription, payable(msg.sender), _basePrice);
   }
 
   /*
@@ -142,7 +158,7 @@ contract NFTProjectMarketplace is ReentrancyGuard {
     proj.noOfNfts ++;
     proj.nfts[proj.noOfNfts] = NFTItem(proj.noOfNfts, _nft, _tokenId, currentTime);
 
-    emit NFTAdded(proj.noOfNfts, address(_nft), _tokenId, currentTime, msg.sender);
+    emit NFTAdded(proj.noOfNfts, address(_nft), _tokenId, currentTime, msg.sender, _projectId);
   }
 
    /*
@@ -180,7 +196,7 @@ contract NFTProjectMarketplace is ReentrancyGuard {
   /*
    ** Purchase NFT Project
    */
-  function purchaseNFTProject(uint _projectId) external nonReentrant {
+  function purchaseNFTProject(uint _projectId) external payable nonReentrant {
 
     uint _totalPrice = getTotalPrice(_projectId);
     require(msg.value >= _totalPrice, "Not enough currency to buy item");
