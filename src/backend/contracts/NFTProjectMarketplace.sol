@@ -20,7 +20,10 @@ contract NFTProjectMarketplace is ReentrancyGuard {
     uint bidPrice;
     address bidder;
     uint bidId;
+    uint projectId;
   }
+  mapping(uint => Bid) public projectBids;
+  uint public totalNoOfBids;
 
   event NewBid (
     uint256 indexed bidTime,
@@ -43,7 +46,10 @@ contract NFTProjectMarketplace is ReentrancyGuard {
     IERC721 nft;
     uint tokenId;
     uint256 uploadTime;
+    uint projectId;
   }
+  mapping(uint => NFTItem) public projectNfts;
+  uint public totalNoOfNfts;
 
   event NFTAdded (
     uint itemId,
@@ -58,14 +64,15 @@ contract NFTProjectMarketplace is ReentrancyGuard {
     uint projectId;
     string name;
     string description;
-    mapping(uint => NFTItem) nfts;
-    uint noOfNfts;
-    mapping(uint => Bid) bids;
-    uint noOfBids;
+    // mapping(uint => NFTItem) nfts;
+    // uint noOfNfts;
+    // mapping(uint => Bid) bids;
+    // uint noOfBids;
     bool sold;
     address payable creator;
     uint lastBid;
     bool completed;
+    uint256 projectStartTime;
     uint256 projectCompleteTime;
   }
   uint256 public projectCount;
@@ -98,7 +105,7 @@ contract NFTProjectMarketplace is ReentrancyGuard {
   }
 
   function getCurrentTimeInEpoch() internal view returns(uint256) {
-    return block.timestamp;
+    return(block.timestamp * 1000);
   }
 
   function getTotalPrice(uint _projectId) view public returns(uint) {
@@ -116,33 +123,18 @@ contract NFTProjectMarketplace is ReentrancyGuard {
 
     _nft.transferFrom(msg.sender, address(this), _tokenId);
 
-    // mapping(uint => NFTItem) memory newNft; // Validate the memory vs storage use case here
-    // newNft[1] = NFTItem(1, _nft, _tokenId, currentTime);
-    // mapping(uint => Bid) memory newBid; // Validate the memory vs storage use case here
-    // newBid[1] = Bid(currentTime, _basePrice, msg.sender, 1);
-
     projectCount ++;
+    totalNoOfNfts ++;
+    totalNoOfBids ++;
 
-    // Artifically add values to struct to test
-    Project storage project = projects[projectCount];
-    project.projectId = projectCount;
-    project.name = _projectName;
-    project.description = _projectDescription;
-    project.noOfNfts ++;
-    project.noOfBids ++;
+    // NFTItem memory nftItem = NFTItem(project.noOfNfts, _nft, _tokenId, currentTime);
+    projects[projectCount] = Project(projectCount, _projectName, _projectDescription, false, payable(msg.sender), _basePrice, false, currentTime, 0);
+    projectNfts[totalNoOfNfts] = NFTItem(totalNoOfNfts, _nft, _tokenId, currentTime, projectCount);
+    // Bid memory bid = Bid(currentTime, _basePrice, msg.sender, project.noOfBids);
+    projectBids[totalNoOfBids] = Bid(currentTime, _basePrice, msg.sender, totalNoOfBids, projectCount);
 
-    NFTItem memory nftItem = NFTItem(project.noOfNfts, _nft, _tokenId, currentTime);
-    Bid memory bid = Bid(currentTime, _basePrice, msg.sender, project.noOfBids);
-
-    project.nfts[project.noOfNfts] = nftItem;
-    project.bids[project.noOfBids] = bid;
-    project.sold = false;
-    project.creator = payable(msg.sender);
-    project.lastBid = _basePrice;
-    project.completed = false;
-
-    emit NFTAdded(project.noOfNfts, address(_nft), _tokenId, currentTime, msg.sender, projectCount);
-    emit NewBid(currentTime, _basePrice, msg.sender, project.noOfBids, projectCount);
+    emit NFTAdded(totalNoOfNfts, address(_nft), _tokenId, currentTime, msg.sender, projectCount);
+    emit NewBid(currentTime, _basePrice, msg.sender, totalNoOfBids, projectCount);
     emit ProjectAdd(projectCount, _projectName, _projectDescription, payable(msg.sender), _basePrice);
   }
 
@@ -155,10 +147,13 @@ contract NFTProjectMarketplace is ReentrancyGuard {
 
     uint256 currentTime = getCurrentTimeInEpoch();
 
-    proj.noOfNfts ++;
-    proj.nfts[proj.noOfNfts] = NFTItem(proj.noOfNfts, _nft, _tokenId, currentTime);
+    _nft.transferFrom(msg.sender, address(this), _tokenId);
+    // proj.noOfNfts ++;
+    // proj.nfts[proj.noOfNfts] = NFTItem(proj.noOfNfts, _nft, _tokenId, currentTime);
+    totalNoOfNfts ++;
+    projectNfts[totalNoOfNfts] = NFTItem(totalNoOfNfts, _nft, _tokenId, currentTime, _projectId);
 
-    emit NFTAdded(proj.noOfNfts, address(_nft), _tokenId, currentTime, msg.sender, _projectId);
+    emit NFTAdded(totalNoOfNfts, address(_nft), _tokenId, currentTime, msg.sender, _projectId);
   }
 
    /*
@@ -173,11 +168,13 @@ contract NFTProjectMarketplace is ReentrancyGuard {
     uint256 currentTime = getCurrentTimeInEpoch();
 
     require(_bidPrice > proj.lastBid, "You can only bid higher amount");
-    proj.noOfBids ++;
-    proj.bids[proj.noOfBids] = Bid(currentTime, _bidPrice, msg.sender, proj.noOfBids);
+    // proj.noOfBids ++;
+    // proj.bids[proj.noOfBids] = Bid(currentTime, _bidPrice, msg.sender, proj.noOfBids);
     proj.lastBid = _bidPrice;
+    totalNoOfBids ++;
+    projectBids[totalNoOfBids] = Bid(currentTime, _bidPrice, msg.sender, totalNoOfBids, _projectId);
 
-    emit NewBid(currentTime, _bidPrice, msg.sender, proj.noOfBids, _projectId);
+    emit NewBid(currentTime, _bidPrice, msg.sender, totalNoOfBids, _projectId);
   }
 
   /*
@@ -207,11 +204,11 @@ contract NFTProjectMarketplace is ReentrancyGuard {
     require(msg.sender != proj.creator, "The creator can not buy the NFT project");
     proj.creator.transfer(proj.lastBid);
     feeAccount.transfer(_totalPrice - proj.lastBid);
+    proj.sold = true;
 
     uint iterationIndex = 1;
-    while (iterationIndex <= proj.noOfNfts) {
-
-      NFTItem memory nftItem = proj.nfts[iterationIndex];
+    while (iterationIndex <= totalNoOfNfts) {
+      NFTItem memory nftItem = projectNfts[iterationIndex];
       nftItem.nft.transferFrom(address(this), msg.sender, nftItem.tokenId);
 
       iterationIndex ++;
